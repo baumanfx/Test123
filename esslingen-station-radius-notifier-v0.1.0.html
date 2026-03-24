@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Esslingen Station Radius Notifier v0.1.0</title>
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Esslingen Station Radius Notifier" />
+  <script>
+  (function(){
+    'use strict';
+    var appTitle = 'Esslingen Station Radius Notifier';
+    var themeColor = '#000000';
+    var iconLetter = 'E';
+    var iconSvg = 'data:image/svg+xml,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">' +
+      '<rect width="512" height="512" rx="72" fill="' + themeColor + '"/>' +
+      '<circle cx="256" cy="256" r="170" fill="#138a36"/>' +
+      '<text x="256" y="332" text-anchor="middle" font-size="240" font-family="Arial,Helvetica,sans-serif" font-weight="700" fill="#ffffff">' + iconLetter + '</text>' +
+      '</svg>'
+    );
+    var startUrl = location.href.split('#')[0];
+    var scopeUrl = startUrl.slice(0, startUrl.lastIndexOf('/') + 1);
+    var manifest = {
+      id: startUrl,
+      name: appTitle,
+      short_name: 'Esslingen Alert',
+      description: 'GPS notifier for a 100 m radius around Esslingen station.',
+      start_url: startUrl,
+      scope: scopeUrl,
+      display: 'standalone',
+      background_color: '#000000',
+      theme_color: themeColor,
+      prefer_related_applications: false,
+      icons: [
+        { src: iconSvg, sizes: '192x192', type: 'image/svg+xml', purpose: 'any maskable' },
+        { src: iconSvg, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }
+      ]
+    };
+    var manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+    var manifestUrl = URL.createObjectURL(manifestBlob);
+    var manifestLink = document.createElement('link');
+    manifestLink.rel = 'manifest';
+    manifestLink.href = manifestUrl;
+    document.head.appendChild(manifestLink);
+
+    var appleIcon = document.createElement('link');
+    appleIcon.rel = 'apple-touch-icon';
+    appleIcon.href = iconSvg;
+    document.head.appendChild(appleIcon);
+
+    function isStandalone(){
+      return !!((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone);
+    }
+
+    var state = {
+      manifestReady: true,
+      installReady: false,
+      installPrompt: null,
+      installOutcome: 'not-ready',
+      installed: isStandalone(),
+      mode: isStandalone() ? 'standalone' : 'browser',
+      protocol: location.protocol,
+      secureContext: !!window.isSecureContext,
+      message: isStandalone()
+        ? 'Running in installed app mode.'
+        : 'Waiting for the browser to decide whether this page is installable.'
+    };
+
+    function emit(){
+      window.__ESN_PWA_STATE__ = {
+        manifestReady: state.manifestReady,
+        installReady: state.installReady,
+        installOutcome: state.installOutcome,
+        installed: state.installed,
+        mode: state.mode,
+        protocol: state.protocol,
+        secureContext: state.secureContext,
+        message: state.message
+      };
+      var installBtn = document.getElementById('pwaInstallBtn');
+      if(installBtn){
+        installBtn.style.display = state.installReady && !state.installed ? 'block' : 'none';
+      }
+      window.dispatchEvent(new CustomEvent('esn-pwa-status'));
+    }
+
+    window.__ESN_PWA__ = {
+      promptInstall: async function(){
+        if(state.installPrompt){
+          var choice = await state.installPrompt.prompt();
+          state.installOutcome = (choice && choice.outcome) || 'dismissed';
+          state.message = state.installOutcome === 'accepted'
+            ? 'Install accepted. The app should now appear in your launcher.'
+            : 'Install prompt dismissed.';
+          state.installPrompt = null;
+          state.installReady = false;
+          emit();
+          return { ok: true, outcome: state.installOutcome };
+        }
+        if(isStandalone()){
+          state.installed = true;
+          state.mode = 'standalone';
+          state.message = 'The app is already running in installed app mode.';
+          emit();
+          return { ok: true, outcome: 'already-installed' };
+        }
+        state.message = location.protocol === 'https:'
+          ? 'Install prompt is not available yet. Use the browser menu or wait until Chromium marks the page installable.'
+          : 'Install prompt unavailable here. Host this file on HTTPS GitHub Pages to enable installation.';
+        emit();
+        return { ok: false, outcome: 'unavailable' };
+      },
+      getState: function(){
+        return window.__ESN_PWA_STATE__ || {
+          manifestReady: true,
+          installReady: false,
+          installOutcome: 'not-ready',
+          installed: isStandalone(),
+          mode: isStandalone() ? 'standalone' : 'browser',
+          protocol: location.protocol,
+          secureContext: !!window.isSecureContext,
+          message: state.message
+        };
+      }
+    };
+
+    window.addEventListener('beforeinstallprompt', function(event){
+      event.preventDefault();
+      state.installPrompt = event;
+      state.installReady = true;
+      state.installOutcome = 'ready';
+      state.message = 'Install prompt is ready.';
+      emit();
+    });
+
+    window.addEventListener('appinstalled', function(){
+      state.installPrompt = null;
+      state.installReady = false;
+      state.installOutcome = 'accepted';
+      state.installed = true;
+      state.mode = 'standalone';
+      state.message = 'App installed successfully.';
+      emit();
+    });
+
+    window.addEventListener('DOMContentLoaded', function(){
+      var installBtn = document.getElementById('pwaInstallBtn');
+      if(installBtn){
+        installBtn.addEventListener('click', function(){
+          window.__ESN_PWA__.promptInstall().catch(function(error){
+            state.message = error && error.message ? error.message : 'Install prompt failed.';
+            emit();
+          });
+        });
+      }
+      if(!state.installed && location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
+        state.message = 'Installability requires HTTPS, localhost, or loopback. This file remains usable as a normal web app.';
+      }
+      emit();
+    });
+
+    window.addEventListener('pagehide', function(){
+      try { URL.revokeObjectURL(manifestUrl); } catch (_) {}
+    });
+  })();
+  </script>
+  <style>
+    :root{
+      --bg:#000000;
+      --fg:#f5f7fb;
+      --muted:#9aa4b2;
+      --panel:#0f1318;
+      --panel-border:#1f2937;
+      --ok:#138a36;
+      --ok-border:#26a04b;
+      --danger:#7f1d1d;
+      --danger-border:#b91c1c;
+      --accent:#1d4ed8;
+      --accent-border:#3b82f6;
+      --shadow:0 0 0 1px rgba(255,255,255,.08), 0 12px 32px rgba(0,0,0,.35);
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--fg);
+      font-family:Arial,Helvetica,sans-serif;
+      transition:background-color .25s ease;
+      min-height:100vh;
+    }
+
+    .app{
+      min-height:100vh;
+      display:grid;
+      grid-template-rows:auto auto 1fr auto;
+      gap:16px;
+      padding:20px;
+      max-width:920px;
+      margin:0 auto;
+    }
+
+    .hero,.panel,.status-card{
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.04);
+      border-radius:18px;
+      box-shadow:var(--shadow);
+    }
+
+    .hero{padding:20px}
+    .prototype{font-size:12px;color:var(--muted);margin-bottom:10px;letter-spacing:.02em}
+    .hero h1{margin:0;font-size:clamp(28px,5vw,44px);line-height:1.05}
+    .hero p{margin:10px 0 0;color:#d1d5db;line-height:1.45;max-width:60ch}
+
+    .status-card{
+      min-height:240px;
+      display:grid;
+      place-items:center;
+      text-align:center;
+      padding:24px;
+    }
+
+    .status-inner{display:grid;gap:10px;place-items:center}
+    .status-pill{
+      padding:8px 14px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.18);
+      background:rgba(255,255,255,.06);
+      color:#ffffff;
+      font-size:12px;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+    }
+
+    .status-main{font-size:clamp(34px,8vw,72px);font-weight:700;line-height:1;letter-spacing:-.03em}
+    .status-sub{color:#d1d5db;font-size:16px;line-height:1.4}
+
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+    .panel{padding:18px}
+    .panel h2{margin:0 0 14px;font-size:18px;line-height:1.2}
+    .form-row{display:grid;gap:8px;margin-bottom:12px}
+    label{font-size:13px;color:#cbd5e1}
+    input,button{font:inherit}
+
+    input{
+      width:100%;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.12);
+      background:#06090d;
+      color:#fff;
+      padding:14px 14px;
+      outline:none;
+    }
+    input:focus{border-color:#60a5fa;box-shadow:0 0 0 3px rgba(59,130,246,.22)}
+
+    .actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    button{
+      min-height:54px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.12);
+      color:#fff;
+      background:#111827;
+      cursor:pointer;
+      padding:12px 14px;
+      transition:transform .05s ease, background-color .15s ease, border-color .15s ease;
+    }
+    button:hover{border-color:rgba(255,255,255,.28)}
+    button:active{transform:translateY(1px)}
+    button[disabled]{opacity:.55;cursor:not-allowed}
+
+    .primary{background:var(--accent);border-color:var(--accent-border)}
+    .secondary{background:#0f172a}
+    .danger{background:var(--danger);border-color:var(--danger-border)}
+    .success{background:var(--ok);border-color:var(--ok-border)}
+
+    .kv{display:grid;grid-template-columns:160px 1fr;gap:10px;align-items:start;font-size:14px;line-height:1.45;margin-bottom:10px}
+    .kv .k{color:var(--muted)}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+    .log{margin-top:12px;background:#06090d;border:1px solid rgba(255,255,255,.10);border-radius:14px;padding:12px;max-height:200px;overflow:auto;font-size:12px;line-height:1.45;color:#d1d5db;white-space:pre-wrap}
+    .footer{color:var(--muted);font-size:12px;line-height:1.45;padding-bottom:max(10px, env(safe-area-inset-bottom))}
+    body.inside{--bg:#0b3f15}
+    body.inside .hero, body.inside .panel, body.inside .status-card{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.18)}
+    .tiny{font-size:12px;color:var(--muted)}
+    .message-bar{margin-top:12px;padding:12px 14px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:#06090d;font-size:13px;line-height:1.45;color:#d1d5db}
+    .message-bar strong{color:#ffffff}
+
+    @media (max-width:760px){
+      .app{padding:14px}
+      .grid,.actions{grid-template-columns:1fr}
+      .kv{grid-template-columns:1fr;gap:2px}
+      .status-card{min-height:210px}
+    }
+  </style>
+</head>
+<body>
+  <button id="pwaInstallBtn" style="display:none;position:fixed;bottom:16px;right:16px;z-index:9999;background:#1d4ed8;color:#fff;border:1px solid #3b82f6;border-radius:14px;padding:12px 18px;font-size:13px;font-weight:700;cursor:pointer;font-family:Arial,Helvetica,sans-serif;box-shadow:0 10px 24px rgba(0,0,0,.32)" title="Install this app">Install app</button>
+  <div id="app" class="app"></div>
+
+  <script>
+  (function(){
+    'use strict';
+
+    const APP_META = Object.freeze({
+      name: 'Esslingen Station Radius Notifier',
+      version: '0.1.0',
+      station: {
+        name: 'Esslingen (Neckar) station',
+        address: 'Bahnhofsplatz 1, 73728 Esslingen am Neckar, Germany',
+        lat: 48.73861,
+        lon: 9.30000,
+        sourceLabel: 'Wikipedia + bahnhof.de',
+        sourceDate: '2026-03-23'
+      },
+      defaults: {
+        radiusMeters: 100,
+        watchHighAccuracy: true,
+        watchTimeoutMs: 15000,
+        watchMaximumAgeMs: 5000,
+        maxTelemetryEntries: 50,
+        persistedTelemetryEntries: 0,
+        maxDetailChars: 220
+      }
+    });
+
+    const ConstraintLedger = Object.freeze({
+      architecture: 'single-file offline-first MVC API-driven broker-coordinated registry-driven',
+      navigation: 'single-view app with AppAPI as front door',
+      ui: 'status-driven shell with black/green background, no direct model mutation from view',
+      telemetry: 'in-memory event log with quota-safe persistence fallback',
+      persistence: 'localStorage optional with memory fallback and guarded writes',
+      notifications: 'page-triggered browser notifications on enter transition only',
+      geolocation: 'watchPosition active monitoring with permission-based access',
+      pwa: 'single-file installability via inline manifest and install prompt; no external service worker file',
+      antiRegression: [
+        'Only one monitor watcher at a time',
+        'Only one notification per outside->inside transition',
+        'Background reflects authoritative inside/outside state',
+        'Quota failures do not break buttons or action execution'
+      ]
+    });
+
+    const AppKernel = {
+      registries: { actions: new Map(), workers: new Map(), queries: new Map() },
+      booted: false
+    };
+
+    const Broker = (() => {
+      const listeners = new Map();
+      function subscribe(topic, handler){
+        if(!listeners.has(topic)) listeners.set(topic, new Set());
+        listeners.get(topic).add(handler);
+        return () => listeners.get(topic)?.delete(handler);
+      }
+      function publish(topic, payload){
+        const group = listeners.get(topic);
+        if(!group) return;
+        group.forEach((handler) => {
+          try { handler(payload); } catch (error) { console.error('Broker listener failed', topic, error); }
+        });
+      }
+      return { subscribe, publish };
+    })();
+
+    const StoragePort = (() => {
+      const KEY = 'esslingen-station-radius-notifier.state';
+      const LEGACY_KEYS = [
+        'esslingen-station-radius-notifier.state',
+        'esslingen-station-radius-notifier.v0.0.2'
+      ];
+      let available = null;
+      let lastError = null;
+
+      function canUseLocalStorage(){
+        if(available !== null) return available;
+        try {
+          const probe = '__esn_probe__';
+          localStorage.setItem(probe, '1');
+          localStorage.removeItem(probe);
+          available = true;
+        } catch (error) {
+          available = false;
+          lastError = String(error && error.message || error || 'localStorage unavailable');
+        }
+        return available;
+      }
+
+      function read(){
+        if(!canUseLocalStorage()) return null;
+        for(const key of LEGACY_KEYS){
+          try {
+            const raw = localStorage.getItem(key);
+            if(raw) return JSON.parse(raw);
+          } catch (error) {
+            lastError = String(error && error.message || error || 'Failed to read persisted state');
+          }
+        }
+        return null;
+      }
+
+      function write(snapshot){
+        if(!canUseLocalStorage()) {
+          return { ok:false, mode:'memory', error:lastError || 'localStorage unavailable' };
+        }
+        try {
+          localStorage.setItem(KEY, JSON.stringify(snapshot));
+          return { ok:true, mode:'localStorage', error:null };
+        } catch (error) {
+          available = false;
+          lastError = String(error && error.message || error || 'Failed to persist state');
+          return { ok:false, mode:'memory', error:lastError };
+        }
+      }
+
+      function status(){
+        return { mode: canUseLocalStorage() ? 'localStorage' : 'memory', error: lastError };
+      }
+
+      return { read, write, status };
+    })();
+
+    const Store = (() => {
+      const baseState = {
+        settings: { radiusMeters: APP_META.defaults.radiusMeters },
+        permissions: {
+          geolocation: 'unknown',
+          notifications: (typeof Notification !== 'undefined' ? Notification.permission : 'unsupported')
+        },
+        monitoring: {
+          active: false,
+          watchId: null,
+          secureContext: window.isSecureContext,
+          statusText: 'Not monitoring yet',
+          inside: false,
+          lastDistanceMeters: null,
+          lastPosition: null,
+          lastUpdatedAt: null,
+          lastError: null,
+          lastActionMessage: 'Ready. Press Grant permissions to request notification and location access.',
+          notifiedInside: false
+        },
+        telemetry: [],
+        persistence: {
+          mode: StoragePort.status().mode,
+          lastPersistError: StoragePort.status().error
+        },
+        ui: { lastRenderAt: null }
+      };
+
+      let state = hydrate(baseState);
+
+      function clone(value){
+        return typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value));
+      }
+
+      function hydrate(fallback){
+        const persisted = StoragePort.read();
+        if(!persisted) return clone(fallback);
+        try {
+          return {
+            ...clone(fallback),
+            ...persisted,
+            settings: { ...fallback.settings, ...(persisted.settings || {}) },
+            permissions: { ...fallback.permissions, ...(persisted.permissions || {}) },
+            monitoring: { ...fallback.monitoring, ...(persisted.monitoring || {}), active:false, watchId:null },
+            telemetry: [],
+            persistence: {
+              mode: StoragePort.status().mode,
+              lastPersistError: StoragePort.status().error
+            }
+          };
+        } catch (error) {
+          return clone(fallback);
+        }
+      }
+
+      function buildSnapshot(current){
+        return {
+          settings: clone(current.settings),
+          permissions: clone(current.permissions),
+          monitoring: {
+            ...clone(current.monitoring),
+            watchId: null,
+            active: false
+          },
+          telemetry: [],
+          persistence: {
+            mode: current.persistence.mode,
+            lastPersistError: current.persistence.lastPersistError
+          },
+          ui: {
+            lastRenderAt: new Date().toISOString()
+          }
+        };
+      }
+
+      function getState(){ return state; }
+
+      function patch(recipe, options){
+        const current = clone(state);
+        state = recipe(current);
+        if(!options || options.persist !== false) persist();
+        Broker.publish('state.changed', state);
+        return state;
+      }
+
+      function persist(){
+        const result = StoragePort.write(buildSnapshot(state));
+        state.persistence.mode = result.mode;
+        state.persistence.lastPersistError = result.error;
+        return result;
+      }
+
+      return { getState, patch, persist };
+    })();
+
+    const Telemetry = {
+      stringifyDetail(detail){
+        if(detail == null) return null;
+        let text = '';
+        try { text = typeof detail === 'string' ? detail : JSON.stringify(detail); }
+        catch (_) { text = String(detail); }
+        if(text.length > APP_META.defaults.maxDetailChars) {
+          text = text.slice(0, APP_META.defaults.maxDetailChars - 1) + '…';
+        }
+        return text;
+      },
+      log(type, detail, persist){
+        const entry = {
+          at: new Date().toISOString(),
+          type,
+          detail: this.stringifyDetail(detail)
+        };
+        Store.patch((s) => {
+          s.telemetry = [...s.telemetry, entry].slice(-APP_META.defaults.maxTelemetryEntries);
+          return s;
+        }, { persist: !!persist });
+      }
+    };
+
+    const GeoMath = {
+      toRadians(deg){ return deg * (Math.PI / 180); },
+      haversineMeters(aLat, aLon, bLat, bLon){
+        const R = 6371000;
+        const dLat = this.toRadians(bLat - aLat);
+        const dLon = this.toRadians(bLon - aLon);
+        const lat1 = this.toRadians(aLat);
+        const lat2 = this.toRadians(bLat);
+        const sinDLat = Math.sin(dLat / 2);
+        const sinDLon = Math.sin(dLon / 2);
+        const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+      }
+    };
+
+    const Environment = {
+      supportsGeolocation(){
+        return !!(navigator && navigator.geolocation && typeof navigator.geolocation.getCurrentPosition === 'function');
+      },
+      supportsNotifications(){
+        return typeof window.Notification !== 'undefined';
+      },
+      isSecure(){
+        return !!window.isSecureContext;
+      },
+      notificationPermission(){
+        return this.supportsNotifications() ? Notification.permission : 'unsupported';
+      }
+    };
+
+    const PWAState = {
+      snapshot(){
+        const raw = window.__ESN_PWA__ && typeof window.__ESN_PWA__.getState === 'function'
+          ? window.__ESN_PWA__.getState()
+          : {};
+        return {
+          manifestReady: !!raw.manifestReady,
+          installReady: !!raw.installReady,
+          installOutcome: raw.installOutcome || 'not-ready',
+          installed: !!raw.installed,
+          mode: raw.mode || ((window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ? 'standalone' : 'browser'),
+          protocol: raw.protocol || location.protocol,
+          secureContext: raw.secureContext == null ? !!window.isSecureContext : !!raw.secureContext,
+          message: raw.message || 'Waiting for installability check.'
+        };
+      },
+      async promptInstall(){
+        if(window.__ESN_PWA__ && typeof window.__ESN_PWA__.promptInstall === 'function'){
+          return window.__ESN_PWA__.promptInstall();
+        }
+        return { ok:false, outcome:'unavailable' };
+      }
+    };
+
+    const NotificationService = {
+      async requestPermission(){
+        if(!Environment.supportsNotifications()) {
+          throw new Error('Notifications are not supported in this browser.');
+        }
+        let result = Notification.permission;
+        if(result === 'default') {
+          result = await Notification.requestPermission();
+        }
+        Store.patch((s) => { s.permissions.notifications = result; return s; });
+        Telemetry.log('notifications.permission', { result });
+        return result;
+      },
+      async notify(title, body){
+        if(!Environment.supportsNotifications()) return { ok:false, reason:'unsupported' };
+        if(Notification.permission !== 'granted') return { ok:false, reason:'not-granted' };
+        try {
+          const notification = new Notification(title, {
+            body,
+            tag: 'esslingen-radius-enter',
+            renotify: true,
+            requireInteraction: false,
+            silent: false
+          });
+          setTimeout(() => { try { notification.close(); } catch (_) {} }, 8000);
+          Telemetry.log('notifications.sent', { title, body });
+          return { ok:true };
+        } catch (error) {
+          throw new Error('Notification display failed in this browser context.');
+        }
+      }
+    };
+
+    const GeolocationWorker = (() => {
+      let activeWatchId = null;
+
+      function syncPermissionState(){
+        if(!navigator.permissions || !navigator.permissions.query) return;
+        navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+          Store.patch((s) => { s.permissions.geolocation = status.state; return s; });
+          status.onchange = () => {
+            Store.patch((s) => { s.permissions.geolocation = status.state; return s; });
+            Telemetry.log('geolocation.permission', { state: status.state });
+          };
+        }).catch(() => {});
+      }
+
+      function explainGeoError(error){
+        const code = Number(error && error.code);
+        if(code === 1) return 'Location permission was denied. Allow location access for this site or installed app.';
+        if(code === 2) return 'Your location is currently unavailable. Check GPS, signal, and device location settings.';
+        if(code === 3) return 'Location lookup timed out. Move to a better signal area and try again.';
+        return (error && error.message) ? String(error.message) : 'Location unavailable.';
+      }
+
+      function getSinglePosition(options){
+        return new Promise((resolve, reject) => {
+          if(!Environment.supportsGeolocation()) {
+            reject(new Error('Geolocation is not supported in this browser.'));
+            return;
+          }
+          navigator.geolocation.getCurrentPosition(resolve, reject, options);
+        });
+      }
+
+      async function preflight(){
+        if(!Environment.supportsGeolocation()) {
+          throw new Error('Geolocation is not supported in this browser or WebView.');
+        }
+        syncPermissionState();
+        try {
+          const position = await getSinglePosition({
+            enableHighAccuracy: APP_META.defaults.watchHighAccuracy,
+            timeout: APP_META.defaults.watchTimeoutMs,
+            maximumAge: 0
+          });
+          handlePosition(position);
+          syncPermissionState();
+          return position;
+        } catch (error) {
+          syncPermissionState();
+          throw new Error(explainGeoError(error));
+        }
+      }
+
+      function handlePosition(position){
+        const { latitude, longitude, accuracy } = position.coords;
+        const distanceMeters = GeoMath.haversineMeters(latitude, longitude, APP_META.station.lat, APP_META.station.lon);
+        const radiusMeters = Number(Store.getState().settings.radiusMeters) || APP_META.defaults.radiusMeters;
+        const inside = distanceMeters <= radiusMeters;
+        const previousInside = !!Store.getState().monitoring.inside;
+        const shouldNotifyEnter = inside && !previousInside;
+
+        Store.patch((s) => {
+          s.monitoring.inside = inside;
+          s.monitoring.lastDistanceMeters = distanceMeters;
+          s.monitoring.lastPosition = { latitude, longitude, accuracy };
+          s.monitoring.lastUpdatedAt = new Date().toISOString();
+          s.monitoring.lastError = null;
+          s.monitoring.statusText = inside ? 'Inside target radius' : 'Outside target radius';
+          s.monitoring.lastActionMessage = inside
+            ? 'Inside the configured radius around ' + APP_META.station.name + '.'
+            : 'Outside the configured radius around ' + APP_META.station.name + '.';
+          s.monitoring.notifiedInside = inside ? true : false;
+          return s;
+        });
+
+        document.body.classList.toggle('inside', inside);
+        Telemetry.log('geolocation.update', {
+          latitude: Number(latitude.toFixed(5)),
+          longitude: Number(longitude.toFixed(5)),
+          accuracy: Math.round(accuracy),
+          distanceMeters: Math.round(distanceMeters),
+          inside,
+          radiusMeters
+        });
+
+        if(shouldNotifyEnter){
+          NotificationService.notify(
+            'Esslingen station nearby',
+            'You are within ' + Math.round(distanceMeters) + ' m of ' + APP_META.station.name + '.'
+          ).catch((error) => {
+            Store.patch((s) => { s.monitoring.lastError = error.message; return s; });
+          });
+        }
+      }
+
+      function handleError(error){
+        const message = explainGeoError(error);
+        Store.patch((s) => {
+          s.monitoring.lastError = message;
+          s.monitoring.statusText = 'Location error';
+          s.monitoring.lastActionMessage = message;
+          s.monitoring.active = false;
+          s.monitoring.watchId = null;
+          return s;
+        });
+        Telemetry.log('geolocation.error', { code: error && error.code, message });
+      }
+
+      async function start(){
+        await preflight();
+        if(activeWatchId !== null) {
+          navigator.geolocation.clearWatch(activeWatchId);
+          activeWatchId = null;
+        }
+        let watchId = null;
+        try {
+          watchId = navigator.geolocation.watchPosition(handlePosition, handleError, {
+            enableHighAccuracy: APP_META.defaults.watchHighAccuracy,
+            timeout: APP_META.defaults.watchTimeoutMs,
+            maximumAge: APP_META.defaults.watchMaximumAgeMs
+          });
+        } catch (error) {
+          throw new Error(explainGeoError(error));
+        }
+        activeWatchId = watchId;
+        Store.patch((s) => {
+          s.monitoring.active = true;
+          s.monitoring.watchId = watchId;
+          s.monitoring.statusText = 'Monitoring started';
+          s.monitoring.lastError = null;
+          return s;
+        });
+        Telemetry.log('monitor.start', { watchId: String(watchId) });
+        return watchId;
+      }
+
+      function stop(){
+        if(activeWatchId !== null && navigator.geolocation) {
+          navigator.geolocation.clearWatch(activeWatchId);
+        }
+        activeWatchId = null;
+        document.body.classList.remove('inside');
+        Store.patch((s) => {
+          s.monitoring.active = false;
+          s.monitoring.watchId = null;
+          s.monitoring.inside = false;
+          s.monitoring.statusText = 'Monitoring stopped';
+          s.monitoring.lastActionMessage = 'Monitoring stopped.';
+          s.monitoring.notifiedInside = false;
+          return s;
+        });
+        Telemetry.log('monitor.stop');
+      }
+
+      return { start, stop, syncPermissionState, preflight };
+    })();
+
+    const ActionWorker = {
+      async requestAllPermissions(){
+        Store.patch((s) => {
+          s.monitoring.lastError = null;
+          s.monitoring.statusText = 'Requesting permissions';
+          s.monitoring.lastActionMessage = 'Requesting notification and location permissions…';
+          return s;
+        });
+        const summary = [];
+        GeolocationWorker.syncPermissionState();
+        if(Environment.supportsNotifications()) {
+          try {
+            const notificationPermission = await NotificationService.requestPermission();
+            summary.push('Notifications: ' + notificationPermission);
+          } catch (error) {
+            summary.push('Notifications: ' + error.message);
+          }
+        } else {
+          summary.push('Notifications: unsupported');
+        }
+
+        if(Environment.supportsGeolocation()) {
+          try {
+            await GeolocationWorker.preflight();
+            summary.push('Location: granted or available');
+          } catch (error) {
+            summary.push('Location: ' + error.message);
+          }
+        } else {
+          summary.push('Location: unsupported');
+        }
+
+        const message = summary.join(' | ');
+        Store.patch((s) => {
+          s.monitoring.lastError = null;
+          s.monitoring.statusText = message;
+          s.monitoring.lastActionMessage = message;
+          s.permissions.notifications = Environment.notificationPermission();
+          return s;
+        });
+        Telemetry.log('permissions.summary', { message, secureContext: Environment.isSecure() });
+        return { ok:true, message };
+      },
+      async startMonitoring(){
+        Store.patch((s) => {
+          s.monitoring.lastError = null;
+          s.monitoring.statusText = 'Starting monitoring';
+          s.monitoring.lastActionMessage = 'Requesting a GPS fix and starting live monitoring…';
+          return s;
+        });
+        await GeolocationWorker.start();
+      },
+      stopMonitoring(){
+        GeolocationWorker.stop();
+      },
+      async testNotification(){
+        Store.patch((s) => {
+          s.monitoring.lastError = null;
+          s.monitoring.statusText = 'Testing notification';
+          s.monitoring.lastActionMessage = 'Requesting notification permission or showing a test notification…';
+          return s;
+        });
+        const permission = typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
+        if(permission !== 'granted') {
+          const result = await NotificationService.requestPermission();
+          if(result !== 'granted') throw new Error('Notification permission was not granted.');
+        }
+        await NotificationService.notify('Esslingen station radius test', 'Notifications are working for this app.');
+        Store.patch((s) => {
+          s.monitoring.statusText = 'Notification test sent';
+          s.monitoring.lastActionMessage = 'A test notification was sent.';
+          return s;
+        });
+      },
+      async installApp(){
+        Store.patch((s) => {
+          s.monitoring.lastError = null;
+          s.monitoring.statusText = 'Checking installability';
+          s.monitoring.lastActionMessage = 'Checking whether the browser can install this page as an app…';
+          return s;
+        });
+        const result = await PWAState.promptInstall();
+        const pwa = PWAState.snapshot();
+        Store.patch((s) => {
+          s.monitoring.lastError = result.ok ? null : s.monitoring.lastError;
+          s.monitoring.statusText = result.ok ? 'Install flow handled' : 'Install guidance shown';
+          s.monitoring.lastActionMessage = pwa.message;
+          return s;
+        });
+        Telemetry.log('pwa.install', { outcome: result.outcome, protocol: pwa.protocol, secureContext: pwa.secureContext });
+        return result;
+      },
+      saveRadiusMeters(value){
+        const parsed = Number(value);
+        if(!Number.isFinite(parsed) || parsed <= 0) throw new Error('Radius must be a positive number.');
+        Store.patch((s) => {
+          s.settings.radiusMeters = Math.round(parsed);
+          s.monitoring.statusText = 'Radius saved';
+          s.monitoring.lastActionMessage = 'Radius saved as ' + Math.round(parsed) + ' meters.';
+          s.monitoring.lastError = null;
+          return s;
+        });
+        Telemetry.log('settings.radius', { radiusMeters: Math.round(parsed) }, true);
+      }
+    };
+
+    const Queries = {
+      getViewModel(){
+        const state = Store.getState();
+        const distance = state.monitoring.lastDistanceMeters;
+        const inside = !!state.monitoring.inside;
+        const persistenceText = state.persistence.mode === 'localStorage'
+          ? 'State persistence: localStorage enabled.'
+          : 'State persistence: memory only' + (state.persistence.lastPersistError ? ' (' + state.persistence.lastPersistError + ')' : '.');
+        const pwa = PWAState.snapshot();
+        const installStateText = pwa.installed
+          ? 'Installed / standalone'
+          : (pwa.installReady ? 'Install prompt ready' : 'Browser check pending');
+        return {
+          meta: APP_META,
+          state,
+          pwa,
+          statusPill: state.monitoring.active ? 'Live monitoring' : (pwa.installed ? 'Installed app' : 'Idle'),
+          statusMain: state.monitoring.active
+            ? (inside ? 'You are near the station' : 'You are not near the station')
+            : (state.monitoring.lastError ? 'Action needs attention' : 'Monitoring is off'),
+          statusSub: state.monitoring.active
+            ? (distance == null ? 'Waiting for a GPS fix…' : Math.round(distance) + ' m from ' + APP_META.station.name)
+            : (state.monitoring.lastActionMessage || 'Grant permissions, then start monitoring.'),
+          actionMessage: state.monitoring.lastActionMessage || 'Ready.',
+          lastDistanceText: distance == null ? '—' : Math.round(distance) + ' m',
+          lastPositionText: state.monitoring.lastPosition
+            ? state.monitoring.lastPosition.latitude.toFixed(5) + ', ' + state.monitoring.lastPosition.longitude.toFixed(5) + ' (±' + Math.round(state.monitoring.lastPosition.accuracy) + ' m)'
+            : '—',
+          telemetryText: state.telemetry.slice().reverse().map((item) => '[' + item.at + '] ' + item.type + (item.detail ? ' ' + item.detail : '')).join('\n') || 'No events yet.',
+          environmentText: persistenceText,
+          pwaInstallText: installStateText,
+          pwaMessageText: pwa.message
+        };
+      }
+    };
+
+    const View = {
+      root: document.getElementById('app'),
+      render(){
+        const vm = Queries.getViewModel();
+        document.body.classList.toggle('inside', !!vm.state.monitoring.inside);
+        document.body.style.backgroundColor = vm.state.monitoring.inside ? '#0b3f15' : '#000000';
+        this.root.innerHTML = '\n          <section class="hero">\n            <div class="prototype">Prototype — provided as-is, without guarantees.</div>\n            <h1>' + escapeHtml(vm.meta.name) + '</h1>\n            <p>This app watches your GPS position and sends a browser notification when you enter the configured radius around ' + escapeHtml(vm.meta.station.name) + '.</p>\n          </section>\n\n          <section class="status-card" aria-live="polite">\n            <div class="status-inner">\n              <div class="status-pill">' + escapeHtml(vm.statusPill) + '</div>\n              <div class="status-main">' + escapeHtml(vm.statusMain) + '</div>\n              <div class="status-sub">' + escapeHtml(vm.statusSub) + '</div>\n            </div>\n          </section>\n\n          <section class="grid">\n            <section class="panel">\n              <h2>Controls</h2>\n              <div class="form-row">\n                <label for="radiusMeters">Target radius in meters</label>\n                <input id="radiusMeters" type="number" min="1" step="1" value="' + escapeAttr(String(vm.state.settings.radiusMeters)) + '" />\n              </div>\n              <div class="actions">\n                <button class="primary" data-action="permissions">Grant permissions</button>\n                <button class="secondary" data-action="save-radius">Save radius</button>\n                <button class="success" data-action="start">Start monitoring</button>\n                <button class="danger" data-action="stop">Stop monitoring</button>\n                <button class="secondary" data-action="test-notification">Test notification</button>\n                <button class="secondary" data-action="install-app">Install app</button>\n              </div>\n              <div class="tiny" style="margin-top:12px">Notifications trigger when you cross from outside to inside the radius.</div>\n              <div class="tiny" style="margin-top:8px">' + escapeHtml(vm.environmentText) + '</div>\n              <div class="message-bar"><strong>Install state:</strong> ' + escapeHtml(vm.pwaInstallText) + '<br /><strong>Install message:</strong> ' + escapeHtml(vm.pwaMessageText) + '</div>\n            </section>\n\n            <section class="panel">\n              <h2>Status</h2>\n              <div class="kv"><div class="k">Station</div><div>' + escapeHtml(vm.meta.station.name) + '</div></div>\n              <div class="kv"><div class="k">Address</div><div>' + escapeHtml(vm.meta.station.address) + '</div></div>\n              <div class="kv"><div class="k">Coordinates</div><div class="mono">' + vm.meta.station.lat.toFixed(5) + ', ' + vm.meta.station.lon.toFixed(5) + '</div></div>\n              <div class="kv"><div class="k">Radius</div><div>' + escapeHtml(String(vm.state.settings.radiusMeters)) + ' m</div></div>\n              <div class="kv"><div class="k">Distance</div><div>' + escapeHtml(vm.lastDistanceText) + '</div></div>\n              <div class="kv"><div class="k">Last position</div><div class="mono">' + escapeHtml(vm.lastPositionText) + '</div></div>\n              <div class="kv"><div class="k">Secure context</div><div>' + escapeHtml(Environment.isSecure() ? 'yes' : 'no') + '</div></div>\n              <div class="kv"><div class="k">Protocol</div><div class="mono">' + escapeHtml(vm.pwa.protocol) + '</div></div>\n              <div class="kv"><div class="k">Display mode</div><div>' + escapeHtml(vm.pwa.mode) + '</div></div>\n              <div class="kv"><div class="k">Manifest</div><div>' + escapeHtml(vm.pwa.manifestReady ? 'inline / ready' : 'not ready') + '</div></div>\n              <div class="kv"><div class="k">Install prompt</div><div>' + escapeHtml(vm.pwa.installReady ? 'ready' : vm.pwa.installOutcome) + '</div></div>\n              <div class="kv"><div class="k">Geolocation permission</div><div>' + escapeHtml(vm.state.permissions.geolocation) + '</div></div>\n              <div class="kv"><div class="k">Notification permission</div><div>' + escapeHtml(vm.state.permissions.notifications) + '</div></div>\n              <div class="kv"><div class="k">Persistence mode</div><div>' + escapeHtml(vm.state.persistence.mode) + '</div></div>\n              <div class="kv"><div class="k">Last persist issue</div><div>' + escapeHtml(vm.state.persistence.lastPersistError || '—') + '</div></div>\n              <div class="kv"><div class="k">Last update</div><div>' + escapeHtml(vm.state.monitoring.lastUpdatedAt || '—') + '</div></div>\n              <div class="kv"><div class="k">Last error</div><div>' + escapeHtml(vm.state.monitoring.lastError || '—') + '</div></div>\n            </section>\n          </section>\n\n          <section class="panel">\n            <h2>Event log</h2>\n            <div class="log">' + escapeHtml(vm.telemetryText) + '</div>\n          </section>\n\n          <div class="footer">\n            <div>Version ' + escapeHtml(vm.meta.version) + '.</div>\n            <div>This build is self-contained for GitHub Pages: the manifest and icons are generated inside the HTML file, with no external PWA files required.</div>\n            <div>Installability depends on HTTPS, localhost, or loopback. The app remains usable as a normal web app when opened from file://, but the install prompt will not appear there.</div>\n            <div>This uses the Geolocation API and Notifications API. In practice, this works reliably while the page or installed app is open and actively monitoring. True always-on background geofencing is not broadly supported on the web.</div>\n            <div>Station coordinates currently set to ' + vm.meta.station.lat.toFixed(5) + ', ' + vm.meta.station.lon.toFixed(5) + '.</div>\n          </div>\n        ';
+        wireEvents(this.root);
+      }
+    };
+
+    const AppAPI = {
+      async command(name, payload){
+        const fn = AppKernel.registries.actions.get(name);
+        if(!fn) throw new Error('Unknown command: ' + name);
+        Broker.publish('command.before', { name, payload });
+        try {
+          const result = await fn(payload || {});
+          Broker.publish('command.after', { name, payload, result });
+          return result;
+        } catch (error) {
+          Telemetry.log('command.error', { name, message: error.message });
+          Store.patch((s) => {
+            s.monitoring.lastError = error.message;
+            s.monitoring.statusText = 'Action failed';
+            s.monitoring.lastActionMessage = error.message;
+            return s;
+          });
+          throw error;
+        }
+      },
+      query(name, payload){
+        const fn = AppKernel.registries.queries.get(name);
+        if(!fn) throw new Error('Unknown query: ' + name);
+        return fn(payload || {});
+      },
+      navigate(){ return true; }
+    };
+
+    function registerArchitecture(){
+      AppKernel.registries.actions.set('permissions', () => ActionWorker.requestAllPermissions());
+      AppKernel.registries.actions.set('start', () => ActionWorker.startMonitoring());
+      AppKernel.registries.actions.set('stop', () => ActionWorker.stopMonitoring());
+      AppKernel.registries.actions.set('test-notification', () => ActionWorker.testNotification());
+      AppKernel.registries.actions.set('install-app', () => ActionWorker.installApp());
+      AppKernel.registries.actions.set('save-radius', ({ radiusMeters }) => ActionWorker.saveRadiusMeters(radiusMeters));
+      AppKernel.registries.queries.set('viewModel', () => Queries.getViewModel());
+    }
+
+    function wireEvents(root){
+      root.querySelector('[data-action="permissions"]')?.addEventListener('click', async () => { await runAction('permissions'); });
+      root.querySelector('[data-action="save-radius"]')?.addEventListener('click', async () => {
+        const value = root.querySelector('#radiusMeters')?.value;
+        await runAction('save-radius', { radiusMeters: value });
+      });
+      root.querySelector('[data-action="start"]')?.addEventListener('click', async () => { await runAction('start'); });
+      root.querySelector('[data-action="stop"]')?.addEventListener('click', async () => { await runAction('stop'); });
+      root.querySelector('[data-action="test-notification"]')?.addEventListener('click', async () => { await runAction('test-notification'); });
+      root.querySelector('[data-action="install-app"]')?.addEventListener('click', async () => { await runAction('install-app'); });
+    }
+
+    async function runAction(name, payload){
+      try {
+        await AppAPI.command(name, payload || {});
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function escapeHtml(value){
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttr(value){ return escapeHtml(value); }
+
+    function boot(){
+      if(AppKernel.booted) return;
+      registerArchitecture();
+      Broker.subscribe('state.changed', () => View.render());
+      Broker.subscribe('command.after', ({ name }) => Telemetry.log('command.ok', { name }));
+      window.addEventListener('esn-pwa-status', () => View.render());
+      GeolocationWorker.syncPermissionState();
+      View.render();
+      AppKernel.booted = true;
+      Telemetry.log('app.boot', {
+        version: APP_META.version,
+        secureContext: window.isSecureContext,
+        station: APP_META.station.name,
+        persistence: Store.getState().persistence.mode
+      }, true);
+    }
+
+    boot();
+    window.AppAPI = AppAPI;
+    window.AppKernel = AppKernel;
+    window.ConstraintLedger = ConstraintLedger;
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Esslingen Station Radius Notifier v0.1.0</title>
+  <meta name="theme-color" content="#000000">
+  <link rel="manifest" href="manifest.webmanifest">
+  <style>
+    :root{--bg:#000;--fg:#fff;--muted:#9ca3af;--panel:#0b0b0b;--border:#2b2b2b;--ok:#14532d;--accent:#2563eb;--danger:#991b1b}
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--fg);font-family:Arial,Helvetica,sans-serif;transition:background-color .2s ease}
+    body.inside{background:#14532d}
+    .app{max-width:860px;margin:0 auto;min-height:100%;padding:16px;display:grid;gap:16px;grid-template-rows:auto auto auto 1fr auto}
+    .card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:16px}
+    h1,h2{margin:0 0 10px}
+    p{margin:0;color:#e5e7eb;line-height:1.45}
+    .subtle{font-size:12px;color:var(--muted)}
+    .hero h1{font-size:clamp(28px,6vw,44px);line-height:1.05}
+    .hero p{margin-top:8px;max-width:65ch}
+    .status{display:grid;place-items:center;text-align:center;min-height:220px}
+    .pill{display:inline-block;padding:8px 12px;border:1px solid rgba(255,255,255,.18);border-radius:999px;font-size:12px;text-transform:uppercase;letter-spacing:.08em}
+    .big{font-size:clamp(36px,10vw,70px);font-weight:700;line-height:1.05;margin-top:10px}
+    .mid{margin-top:8px;color:#e5e7eb}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+    .row{display:grid;gap:8px;margin-bottom:12px}
+    label{font-size:13px;color:#d1d5db}
+    input,button{font:inherit}
+    input{width:100%;padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:#050505;color:#fff}
+    button{min-height:52px;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:#111827;color:#fff;cursor:pointer}
+    button.primary{background:var(--accent)}
+    button.danger{background:var(--danger)}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .kv{display:grid;grid-template-columns:170px 1fr;gap:10px;margin:0 0 8px;font-size:14px}
+    .kv .k{color:var(--muted)}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-word}
+    .log{max-height:220px;overflow:auto;background:#050505;border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px;font-size:12px;white-space:pre-wrap;line-height:1.45;color:#d1d5db}
+    .warn{border-color:#7c2d12;background:rgba(124,45,18,.18)}
+    footer{color:var(--muted);font-size:12px;padding-bottom:8px}
+    @media (max-width:700px){.grid,.actions{grid-template-columns:1fr}.kv{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <section class="card hero">
+    <div class="subtle">Prototype — provided as-is, without guarantees. Version 0.1.0</div>
+    <h1>Esslingen Station Radius Notifier</h1>
+    <p>When you are within 100 m of Esslingen station, the app turns green and sends a browser notification. This build is intended to be hosted over HTTPS or localhost and works best when installed as a PWA.</p>
+  </section>
+
+  <section class="card status" id="statusCard">
+    <div>
+      <div class="pill" id="statusPill">Idle</div>
+      <div class="big" id="statusMain">Outside radius</div>
+      <div class="mid" id="statusSub">Not monitoring yet.</div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <section class="card" id="controlsCard">
+      <h2>Controls</h2>
+      <div class="row">
+        <label for="radiusInput">Radius in meters</label>
+        <input id="radiusInput" type="number" min="1" step="1" value="100">
+      </div>
+      <div class="actions">
+        <button class="primary" id="grantBtn">Grant permissions</button>
+        <button id="saveBtn">Save radius</button>
+        <button class="primary" id="startBtn">Start monitoring</button>
+        <button class="danger" id="stopBtn">Stop monitoring</button>
+        <button id="testBtn">Test notification</button>
+      </div>
+      <div style="margin-top:12px" class="subtle" id="message">Ready.</div>
+    </section>
+
+    <section class="card" id="diagCard">
+      <h2>Diagnostics</h2>
+      <div class="kv"><div class="k">Protocol</div><div class="mono" id="diagProtocol"></div></div>
+      <div class="kv"><div class="k">Origin</div><div class="mono" id="diagOrigin"></div></div>
+      <div class="kv"><div class="k">Secure context</div><div id="diagSecure"></div></div>
+      <div class="kv"><div class="k">Notifications</div><div id="diagNotif"></div></div>
+      <div class="kv"><div class="k">Location</div><div id="diagGeo"></div></div>
+      <div class="kv"><div class="k">Service worker</div><div id="diagSW"></div></div>
+      <div class="kv"><div class="k">Notification permission</div><div id="diagNotifPerm"></div></div>
+      <div class="kv"><div class="k">GPS permission</div><div id="diagGeoPerm"></div></div>
+      <div class="kv"><div class="k">Target</div><div class="mono">Esslingen (Neckar) station — 48.73861, 9.30000</div></div>
+      <div class="kv"><div class="k">Current distance</div><div id="diagDistance"></div></div>
+      <div class="kv"><div class="k">Last position</div><div class="mono" id="diagPosition"></div></div>
+    </section>
+  </section>
+
+  <section class="card">
+    <h2>Event log</h2>
+    <div class="log" id="log"></div>
+  </section>
+
+  <footer>
+    Notifications require a secure context. On mobile browsers, visible notifications generally work best through a service worker-backed PWA rather than direct <span class="mono">new Notification()</span> calls.
+  </footer>
+</div>
+<script>
+(() => {
+  'use strict';
+
+  const APP = Object.freeze({
+    name: 'Esslingen Station Radius Notifier',
+    version: '0.1.0',
+    station: { name: 'Esslingen (Neckar) station', lat: 48.73861, lon: 9.30000 },
+    defaults: { radiusMeters: 100, timeoutMs: 15000, maxAgeMs: 5000, highAccuracy: true },
+    storageKey: 'esslingen-station-radius-notifier.v0.1.0'
+  });
+
+  const state = {
+    radiusMeters: 100,
+    watchId: null,
+    inside: false,
+    lastDistanceMeters: null,
+    lastPosition: null,
+    lastMessage: 'Ready.',
+    lastGeoPermission: 'unknown',
+    lastNotificationPermission: (typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'),
+    swReady: false,
+    log: []
+  };
+
+  const el = {
+    body: document.body,
+    statusPill: document.getElementById('statusPill'),
+    statusMain: document.getElementById('statusMain'),
+    statusSub: document.getElementById('statusSub'),
+    message: document.getElementById('message'),
+    radiusInput: document.getElementById('radiusInput'),
+    grantBtn: document.getElementById('grantBtn'),
+    saveBtn: document.getElementById('saveBtn'),
+    startBtn: document.getElementById('startBtn'),
+    stopBtn: document.getElementById('stopBtn'),
+    testBtn: document.getElementById('testBtn'),
+    log: document.getElementById('log'),
+    diagProtocol: document.getElementById('diagProtocol'),
+    diagOrigin: document.getElementById('diagOrigin'),
+    diagSecure: document.getElementById('diagSecure'),
+    diagNotif: document.getElementById('diagNotif'),
+    diagGeo: document.getElementById('diagGeo'),
+    diagSW: document.getElementById('diagSW'),
+    diagNotifPerm: document.getElementById('diagNotifPerm'),
+    diagGeoPerm: document.getElementById('diagGeoPerm'),
+    diagDistance: document.getElementById('diagDistance'),
+    diagPosition: document.getElementById('diagPosition'),
+    diagCard: document.getElementById('diagCard')
+  };
+
+  function log(message){
+    const line = `${new Date().toLocaleTimeString()} — ${message}`;
+    state.log.unshift(line);
+    state.log = state.log.slice(0, 80);
+    render();
+  }
+
+  function setMessage(message){
+    state.lastMessage = message;
+    render();
+  }
+
+  function readStoredRadius(){
+    try {
+      const raw = localStorage.getItem(APP.storageKey);
+      if(!raw) return;
+      const parsed = JSON.parse(raw);
+      if(Number.isFinite(parsed.radiusMeters) && parsed.radiusMeters > 0){
+        state.radiusMeters = Math.round(parsed.radiusMeters);
+      }
+    } catch (_) {}
+  }
+
+  function persistRadius(){
+    try {
+      localStorage.setItem(APP.storageKey, JSON.stringify({ radiusMeters: state.radiusMeters }));
+    } catch (_) {}
+  }
+
+  function supportsNotifications(){ return typeof window.Notification !== 'undefined'; }
+  function supportsGeolocation(){ return !!(navigator.geolocation && navigator.geolocation.getCurrentPosition); }
+  function supportsServiceWorker(){ return 'serviceWorker' in navigator; }
+  function currentOrigin(){ return location.origin && location.origin !== 'null' ? location.origin : '(opaque / no origin)'; }
+
+  function haversineMeters(lat1, lon1, lat2, lon2){
+    const toRad = d => d * Math.PI / 180;
+    const R = 6371000;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+
+  async function updateGeoPermission(){
+    if(!(navigator.permissions && navigator.permissions.query)) return;
+    try {
+      const status = await navigator.permissions.query({ name: 'geolocation' });
+      state.lastGeoPermission = status.state;
+      status.onchange = () => { state.lastGeoPermission = status.state; render(); };
+      render();
+    } catch (_) {}
+  }
+
+  async function registerServiceWorker(){
+    if(!supportsServiceWorker() || !window.isSecureContext) {
+      state.swReady = false;
+      render();
+      return null;
+    }
+    try {
+      const registration = await navigator.serviceWorker.register('./sw.js');
+      await navigator.serviceWorker.ready;
+      state.swReady = true;
+      render();
+      return registration;
+    } catch (error) {
+      state.swReady = false;
+      log('Service worker registration failed: ' + (error.message || error));
+      render();
+      return null;
+    }
+  }
+
+  async function showNotification(title, body){
+    if(!supportsNotifications()) throw new Error('Notifications are not supported in this browser.');
+    if(!window.isSecureContext) throw new Error('Notifications require a secure context such as HTTPS or localhost.');
+    if(Notification.permission !== 'granted') throw new Error('Notification permission is not granted.');
+
+    const registration = await registerServiceWorker();
+    if(registration && registration.showNotification) {
+      await registration.showNotification(title, {
+        body,
+        tag: 'esslingen-radius',
+        renotify: true,
+        requireInteraction: false,
+        silent: false,
+        vibrate: [200, 100, 200],
+        data: { url: location.href },
+        badge: './icon-192.png',
+        icon: './icon-192.png'
+      });
+      return;
+    }
+
+    throw new Error('Service worker notifications are not available in this context.');
+  }
+
+  async function requestNotificationPermission(){
+    if(!supportsNotifications()) return 'unsupported';
+    if(!window.isSecureContext) {
+      state.lastNotificationPermission = Notification.permission;
+      throw new Error('This page is not in a secure context, so the browser will not show a notification permission prompt.');
+    }
+    if(Notification.permission === 'denied') {
+      state.lastNotificationPermission = 'denied';
+      throw new Error('Notification permission was already denied. Re-enable it in site settings.');
+    }
+    const result = await Notification.requestPermission();
+    state.lastNotificationPermission = result;
+    render();
+    return result;
+  }
+
+  function getPosition(){
+    return new Promise((resolve, reject) => {
+      if(!supportsGeolocation()) {
+        reject(new Error('Geolocation is not supported in this browser.'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: APP.defaults.highAccuracy,
+        timeout: APP.defaults.timeoutMs,
+        maximumAge: 0
+      });
+    });
+  }
+
+  function explainGeoError(error){
+    const code = Number(error && error.code);
+    if(code === 1) return 'Location permission was denied.';
+    if(code === 2) return 'Location is unavailable.';
+    if(code === 3) return 'Location lookup timed out.';
+    return error && error.message ? String(error.message) : 'Location failed.';
+  }
+
+  async function requestLocationPermission(){
+    try {
+      const position = await getPosition();
+      state.lastGeoPermission = 'granted';
+      applyPosition(position);
+      return 'granted';
+    } catch (error) {
+      const message = explainGeoError(error);
+      if(/denied/i.test(message)) state.lastGeoPermission = 'denied';
+      render();
+      throw new Error(message);
+    }
+  }
+
+  function applyPosition(position){
+    const { latitude, longitude, accuracy } = position.coords;
+    const distanceMeters = haversineMeters(latitude, longitude, APP.station.lat, APP.station.lon);
+    const inside = distanceMeters <= state.radiusMeters;
+    const wasInside = state.inside;
+    state.lastPosition = { latitude, longitude, accuracy };
+    state.lastDistanceMeters = distanceMeters;
+    state.inside = inside;
+    el.body.classList.toggle('inside', inside);
+    render();
+    if(inside && !wasInside) {
+      showNotification('Esslingen station nearby', `You are within ${Math.round(distanceMeters)} m of ${APP.station.name}.`)
+        .then(() => log('Entry notification sent.'))
+        .catch((error) => log('Notification could not be shown: ' + error.message));
+    }
+  }
+
+  async function grantPermissions(){
+    setMessage('Requesting permissions…');
+    const parts = [];
+    try {
+      const notif = await requestNotificationPermission();
+      parts.push('Notifications: ' + notif);
+    } catch (error) {
+      parts.push('Notifications: ' + error.message);
+    }
+    try {
+      const geo = await requestLocationPermission();
+      parts.push('Location: ' + geo);
+    } catch (error) {
+      parts.push('Location: ' + error.message);
+    }
+    const message = parts.join(' | ');
+    setMessage(message);
+    log(message);
+  }
+
+  async function startMonitoring(){
+    if(!supportsGeolocation()) {
+      setMessage('Geolocation is not supported in this browser.');
+      return;
+    }
+    try {
+      setMessage('Starting monitoring…');
+      const first = await getPosition();
+      state.lastGeoPermission = 'granted';
+      applyPosition(first);
+      if(state.watchId !== null) navigator.geolocation.clearWatch(state.watchId);
+      state.watchId = navigator.geolocation.watchPosition((pos) => {
+        applyPosition(pos);
+        log('Position update received.');
+      }, (error) => {
+        setMessage(explainGeoError(error));
+        log('watchPosition error: ' + explainGeoError(error));
+        if(state.watchId !== null) {
+          navigator.geolocation.clearWatch(state.watchId);
+          state.watchId = null;
+          render();
+        }
+      }, {
+        enableHighAccuracy: APP.defaults.highAccuracy,
+        timeout: APP.defaults.timeoutMs,
+        maximumAge: APP.defaults.maxAgeMs
+      });
+      setMessage('Monitoring started.');
+      log('Monitoring started.');
+      render();
+    } catch (error) {
+      setMessage('Monitoring could not start: ' + explainGeoError(error));
+      log('Start failed: ' + explainGeoError(error));
+    }
+  }
+
+  function stopMonitoring(){
+    if(state.watchId !== null) {
+      navigator.geolocation.clearWatch(state.watchId);
+      state.watchId = null;
+    }
+    setMessage('Monitoring stopped.');
+    log('Monitoring stopped.');
+    render();
+  }
+
+  async function testNotification(){
+    try {
+      setMessage('Sending test notification…');
+      if(Notification.permission !== 'granted') {
+        await requestNotificationPermission();
+      }
+      await showNotification('Esslingen station test', 'Notifications are working for this app.');
+      setMessage('Test notification sent.');
+      log('Test notification sent.');
+    } catch (error) {
+      setMessage('Test notification failed: ' + error.message);
+      log('Test notification failed: ' + error.message);
+    }
+  }
+
+  function saveRadius(){
+    const value = Number(el.radiusInput.value);
+    if(!Number.isFinite(value) || value <= 0) {
+      setMessage('Radius must be a positive number.');
+      return;
+    }
+    state.radiusMeters = Math.round(value);
+    persistRadius();
+    render();
+    setMessage('Radius saved as ' + state.radiusMeters + ' m.');
+    log('Radius saved.');
+  }
+
+  function render(){
+    el.radiusInput.value = String(state.radiusMeters);
+    el.statusPill.textContent = state.watchId !== null ? 'Live monitoring' : 'Idle';
+    el.statusMain.textContent = state.inside ? 'Inside radius' : 'Outside radius';
+    if(state.lastDistanceMeters == null) {
+      el.statusSub.textContent = state.watchId !== null ? 'Monitoring, waiting for location updates.' : 'Not monitoring yet.';
+    } else {
+      el.statusSub.textContent = `${Math.round(state.lastDistanceMeters)} m from ${APP.station.name}. Radius: ${state.radiusMeters} m.`;
+    }
+    el.message.textContent = state.lastMessage;
+    el.diagProtocol.textContent = location.protocol || '(none)';
+    el.diagOrigin.textContent = currentOrigin();
+    el.diagSecure.textContent = window.isSecureContext ? 'Yes' : 'No';
+    el.diagNotif.textContent = supportsNotifications() ? 'Supported' : 'Unsupported';
+    el.diagGeo.textContent = supportsGeolocation() ? 'Supported' : 'Unsupported';
+    el.diagSW.textContent = supportsServiceWorker() ? (state.swReady ? 'Registered' : (window.isSecureContext ? 'Available, not ready yet' : 'Blocked by insecure context')) : 'Unsupported';
+    el.diagNotifPerm.textContent = supportsNotifications() ? Notification.permission : 'unsupported';
+    el.diagGeoPerm.textContent = state.lastGeoPermission;
+    el.diagDistance.textContent = state.lastDistanceMeters == null ? 'Unknown' : Math.round(state.lastDistanceMeters) + ' m';
+    el.diagPosition.textContent = state.lastPosition ? `${state.lastPosition.latitude.toFixed(5)}, ${state.lastPosition.longitude.toFixed(5)} (±${Math.round(state.lastPosition.accuracy)} m)` : 'Unknown';
+    el.log.textContent = state.log.length ? state.log.join('\n') : 'No events yet.';
+    el.diagCard.classList.toggle('warn', !window.isSecureContext);
+  }
+
+  async function init(){
+    readStoredRadius();
+    render();
+    await updateGeoPermission();
+    await registerServiceWorker();
+    log('App loaded.');
+    if(!window.isSecureContext) {
+      setMessage('This page is not in a secure context. Notifications will not prompt here. Host it on HTTPS or localhost, then install as a PWA for best mobile behavior.');
+      log('Insecure context detected.');
+    }
+  }
+
+  el.grantBtn.addEventListener('click', grantPermissions);
+  el.saveBtn.addEventListener('click', saveRadius);
+  el.startBtn.addEventListener('click', startMonitoring);
+  el.stopBtn.addEventListener('click', stopMonitoring);
+  el.testBtn.addEventListener('click', testNotification);
+
+  init();
+})();
+</script>
+</body>
+</html>
